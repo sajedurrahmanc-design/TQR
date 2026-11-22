@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>APK Renamer & Signer</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin: 0;
+      padding: 18px;
+    }
+    .card {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      color: #38bdf8;
+      font-size: 1.2rem;
+    }
+    label {
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 5px;
+      font-size: 0.9rem;
+      color: #cbd5e1;
+    }
+    input[type="text"],
+    input[type="password"],
+    input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #f8fafc;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 14px;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #fff;
+    }
+    .btn-install {
+      background: #16a34a;
+      color: #fff;
+      display: none;
+    }
+    .status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0f172a;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      white-space: pre-line;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>APK প্যাকেজ রিনেমার ও সাইনার</h2>
+
+    <label for="apkFile">APK ফাইল যুক্ত করুন</label>
+    <input type="file" id="apkFile" accept=".apk,application/vnd.android.package-archive,*/*" />
+
+    <label for="oldPkg">বর্তমান প্যাকেজ নাম</label>
+    <input type="text" id="oldPkg" placeholder="যেমন: com.example.oldapp" />
+
+    <label for="newPkg">নতুন প্যাকেজ নাম</label>
+    <input type="text" id="newPkg" placeholder="যেমন: com.example.newapp" />
+
+    <label for="aliasName">Key Alias</label>
+    <input type="text" id="aliasName" value="my_release_key" />
+
+    <label for="ksPass">Keystore পাসওয়ার্ড</label>
+    <input type="password" id="ksPass" placeholder="কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড" />
+
+    <button class="btn-primary" id="runBtn" type="button">প্যাকেজ পরিবর্তন ও সাইন করুন</button>
+    <button class="btn-install" id="installBtn" type="button">সাইন করা APK ইনস্টল করুন</button>
+
+    <div class="status" id="statusBox">স্ট্যাটাস: একটি APK ফাইল নির্বাচন করুন।</div>
+  </div>
+
+  <script>
+    const apkFile = document.getElementById("apkFile");
+    const oldPkg = document.getElementById("oldPkg");
+    const newPkg = document.getElementById("newPkg");
+    const aliasName = document.getElementById("aliasName");
+    const ksPass = document.getElementById("ksPass");
+    const runBtn = document.getElementById("runBtn");
+    const installBtn = document.getElementById("installBtn");
+    const statusBox = document.getElementById("statusBox");
+
+    let generatedApkPath = null;
+    const pkgRegex = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+
+    window.onNativeStatus = function(msg) {
+      statusBox.textContent = msg;
+    };
+
+    window.onApkReady = function(path) {
+      generatedApkPath = path;
+      installBtn.style.display = "block";
+    };
+
+    apkFile.addEventListener("change", () => {
+      installBtn.style.display = "none";
+      generatedApkPath = null;
+      if (window.AndroidBridge && typeof window.AndroidBridge.getSelectedFileInfo === "function") {
+        const info = window.AndroidBridge.getSelectedFileInfo();
+        if (info) {
+          const [name, size] = info.split("|");
+          const mb = size > 0 ? (Number(size) / (1024 * 1024)).toFixed(2) + " MB" : "আকার অজানা";
+          statusBox.textContent = `নির্বাচিত ফাইল: ${name} (${mb})`;
+          return;
+        }
+      }
+      if (apkFile.files[0]) {
+        statusBox.textContent = `নির্বাচিত ফাইল: ${apkFile.files[0].name}`;
+      }
+    });
+
+    runBtn.addEventListener("click", () => {
+      const oPkg = oldPkg.value.trim();
+      const nPkg = newPkg.value.trim();
+      const alias = aliasName.value.trim();
+      const pass = ksPass.value;
+
+      if (!pkgRegex.test(oPkg) || !pkgRegex.test(nPkg)) {
+        statusBox.textContent = "ত্রুটি: বর্তমান ও নতুন উভয় প্যাকেজ নাম বৈধ হতে হবে (যেমন: com.example.app)।";
+        return;
+      }
+      if (oPkg === nPkg) {
+        statusBox.textContent = "ত্রুটি: নতুন প্যাকেজ নাম বর্তমান প্যাকেজ নামের চেয়ে আলাদা হতে হবে।";
+        return;
+      }
+      if (!alias || pass.length < 6) {
+        statusBox.textContent = "ত্রুটি: Key Alias দিন এবং পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।";
+        return;
+      }
+
+      if (window.AndroidBridge && typeof window.AndroidBridge.processAndSignApk === "function") {
+        installBtn.style.display = "none";
+        window.AndroidBridge.processAndSignApk(oPkg, nPkg, alias, pass);
+      } else {
+        statusBox.textContent = "ত্রুটি: AndroidBridge পাওয়া যায়নি। এটি Android অ্যাপের ভেতরে চালান।";
+      }
+    });
+
+    installBtn.addEventListener("click", () => {
+      if (generatedApkPath && window.AndroidBridge && typeof window.AndroidBridge.installApk === "function") {
+        window.AndroidBridge.installApk(generatedApkPath);
+      }
+    });
+  </script>
+</body>
+</html>
